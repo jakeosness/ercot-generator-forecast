@@ -9,22 +9,28 @@ import base64
 from io import BytesIO
 import streamlit.components.v1 as components
 
-# === Configuration ===
+# Configuration
 DATA_DIR = "Model_Info2/prediction_csvs/"
 PRICE_RANGE_CSV = "Generator_TPO_Price_Range.csv"
+FORECAST_CSV = "forecastdata.csv"
 
-# === Sidebar Controls ===
+forecast_df = pd.read_csv(FORECAST_CSV)
+forecast_df['DeliveryDate'] = pd.to_datetime(forecast_df['DeliveryDate'])
+forecast_start_date = forecast_df['DeliveryDate'].iloc[0].date()
+
+
+# Sidebar Controls
 st.sidebar.title("View Options")
 view_mode = st.sidebar.radio("Select display mode", ["Grid View", "Scrollable Row View"])
 
-# === File Selector in Sidebar ===
+# File Selector in Sidebar
 all_files = [f for f in os.listdir(DATA_DIR) if f.endswith("_forecast_block.csv")]
 selected_file = st.sidebar.selectbox("Select a Generator", sorted(all_files))
 
-# === Load min/max price range data ===
+# Load min/max price range data
 price_range_df = pd.read_csv(PRICE_RANGE_CSV)
 
-# === Excel Export Function ===
+# Excel Export Function
 def generate_combined_excel(data_dir):
     output = BytesIO()
     writer = pd.ExcelWriter(output, engine='xlsxwriter')
@@ -50,7 +56,7 @@ def generate_combined_excel(data_dir):
     output.seek(0)
     return output
 
-# === Excel Download Button ===
+# Excel Download Button
 excel_data = generate_combined_excel(DATA_DIR)
 st.sidebar.download_button(
     label="📥 Download All Forecasts (Excel)",
@@ -59,22 +65,22 @@ st.sidebar.download_button(
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
 
-# === Main Title ===
+# Main Title
 st.title("ERCOT Forecasted Offer Curves")
 
-# === Load and Visualize ===
+# Load and Visualize
 if selected_file:
     df = pd.read_csv(os.path.join(DATA_DIR, selected_file))
     gen_name = selected_file.replace("_forecast_block.csv", "")
     st.subheader(f"Forecasted Curves: {gen_name}")
 
-    # === Get price bounds for generator
+    # Get price bounds for generator
     price_range = price_range_df[price_range_df["Resource Name"] == gen_name]
     price_min = price_range["Min_NonZero_TPO_Price"].values[0] if not price_range.empty else None
     price_max = price_range["Max_TPO_Price"].values[0] if not price_range.empty else None
 
     num_days = len(df) // 24
-    start_date = pd.Timestamp("2025-05-04")
+    start_date = pd.Timestamp(forecast_start_date)
 
     for day in range(num_days):
         display_date = start_date + pd.Timedelta(days=day)
