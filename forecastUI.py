@@ -9,23 +9,24 @@ import base64
 from io import BytesIO
 import streamlit.components.v1 as components
 
-# === Import function to generate prediction input file ===
+# === Import functions ===
 from buildonbaseForecast import generate_prediction_file
+from generatetodaysPredictions import run_model_prediction
 
 # === Configuration Paths ===
-DATA_DIR = "Model_Info2/prediction_csvs/"                      # Directory containing forecasted output CSVs
-PRICE_RANGE_CSV = "Generator_TPO_Price_Range.csv"              # File with min/max TPO price per generator
-FORECAST_CSV = "forecastdata.csv"                              # Forecast file to determine start date
+DATA_DIR = "Model_Info2/prediction_csvs/"
+PRICE_RANGE_CSV = "Generator_TPO_Price_Range.csv"
+FORECAST_CSV = "forecastdata.csv"
 
-# === Load forecast start date for use in plots ===
+# === Load forecast start date ===
 forecast_df = pd.read_csv(FORECAST_CSV)
 forecast_df['DeliveryDate'] = pd.to_datetime(forecast_df['DeliveryDate'])
 forecast_start_date = forecast_df['DeliveryDate'].iloc[0].date()
 
-# === Sidebar: Title and Prediction File Generator ===
+# === Sidebar: Title ===
 st.sidebar.title("View Options")
 
-# --- User inputs gas price and triggers file generation ---
+# === Sidebar: Gas price input + file generation ===
 st.sidebar.markdown("### Generate Prediction File")
 gas_price_input = st.sidebar.text_input("Enter Natural Gas Price ($/MMBtu)", value="2.96")
 
@@ -37,17 +38,23 @@ if st.sidebar.button("Generate Prediction File"):
     except ValueError:
         st.sidebar.error("❌ Please enter a valid numeric gas price.")
 
-# === Sidebar: Visualization Mode + Generator Selection ===
-view_mode = st.sidebar.radio("Select display mode", ["Grid View", "Scrollable Row View"])
+# === Sidebar: Run Forecast Model Button ===
+if st.sidebar.button("Run Forecast Model"):
+    try:
+        run_model_prediction()
+        st.sidebar.success("✅ Forecasts generated and saved to prediction_csvs/")
+    except Exception as e:
+        st.sidebar.error(f"❌ Error generating predictions: {e}")
 
-# List of all generator forecast files
+# === Sidebar: Display mode and generator selector ===
+view_mode = st.sidebar.radio("Select display mode", ["Grid View", "Scrollable Row View"])
 all_files = [f for f in os.listdir(DATA_DIR) if f.endswith("_forecast_block.csv")]
 selected_file = st.sidebar.selectbox("Select a Generator", sorted(all_files))
 
-# === Load price range per generator (used to annotate plots) ===
+# === Load price range table ===
 price_range_df = pd.read_csv(PRICE_RANGE_CSV)
 
-# === Function to combine all forecasts into a downloadable Excel workbook ===
+# === Excel Export Function ===
 def generate_combined_excel(data_dir):
     output = BytesIO()
     writer = pd.ExcelWriter(output, engine='xlsxwriter')
@@ -65,7 +72,7 @@ def generate_combined_excel(data_dir):
 
     for df in combined_df:
         gen_name = df["Generator"].iloc[0]
-        df.to_excel(writer, sheet_name=gen_name[:31], index=False)  # Sheet name limited to 31 chars
+        df.to_excel(writer, sheet_name=gen_name[:31], index=False)  # Limit sheet name to 31 chars
 
     writer.close()
     output.seek(0)
@@ -80,21 +87,19 @@ st.sidebar.download_button(
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
 
-# === Main App Title ===
+# === Main Title ===
 st.title("ERCOT Forecasted Offer Curves")
 
-# === Load and Plot Forecast Data for Selected Generator ===
+# === Display Forecasted Offer Curves ===
 if selected_file:
     df = pd.read_csv(os.path.join(DATA_DIR, selected_file))
     gen_name = selected_file.replace("_forecast_block.csv", "")
     st.subheader(f"Forecasted Curves: {gen_name}")
 
-    # Load min/max price lines for visual annotation
     price_range = price_range_df[price_range_df["Resource Name"] == gen_name]
     price_min = price_range["Min_NonZero_TPO_Price"].values[0] if not price_range.empty else None
     price_max = price_range["Max_TPO_Price"].values[0] if not price_range.empty else None
 
-    # Forecast covers multiple days (each with 24 hours of forecast)
     num_days = len(df) // 24
     start_date = pd.Timestamp(forecast_start_date)
 
@@ -103,7 +108,6 @@ if selected_file:
         st.markdown(f"### Day {day + 1} ({display_date.strftime('%B %d, %Y')})")
         st.markdown(f"**Hours {day*24}–{(day+1)*24 - 1}**")
 
-        # === Grid View: 4x6 = 24 plots side by side ===
         if view_mode == "Grid View":
             fig = plt.figure(figsize=(28, 18))
             gs = gridspec.GridSpec(4, 6, figure=fig)
@@ -119,7 +123,6 @@ if selected_file:
                 ax.set_ylabel("Price")
                 ax.tick_params(labelsize=8)
 
-                # Add min/max price guide lines
                 if price_min is not None:
                     ax.axhline(price_min, color='green', linestyle='--', linewidth=1)
                 if price_max is not None:
@@ -128,8 +131,7 @@ if selected_file:
             plt.tight_layout()
             st.pyplot(fig)
 
-        # === Scrollable Row View: 24 plots in a horizontal scroll ===
-        else:
+        else:  # Scrollable Row View
             fig, axes = plt.subplots(1, 24, figsize=(48, 4), constrained_layout=True)
 
             for i, h in enumerate(range(day * 24, (day + 1) * 24)):
@@ -146,17 +148,15 @@ if selected_file:
                     ax.set_xlabel("MW", fontsize=6)
                     ax.set_ylabel("Price", fontsize=6)
 
-                # Add min/max price guide lines
                 if price_min is not None:
                     ax.axhline(price_min, color='green', linestyle='--', linewidth=1)
                 if price_max is not None:
                     ax.axhline(price_max, color='red', linestyle='--', linewidth=1)
 
-            # Convert to scrollable image for wide horizontal layout
             buf = BytesIO()
             fig.savefig(buf, format="png", bbox_inches="tight")
             buf.seek(0)
-            img_base64 = base6.b64encode(buf.read()).decode("utf-8")
+            img_base64 = base64.b64encode(buf.read()).decode("utf-8")
             buf.close()
 
             components.html(
