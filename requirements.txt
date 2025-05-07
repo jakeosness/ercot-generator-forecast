@@ -5,3 +5,4 @@ xlsxwriter
 numpy
 joblib
 tensorflow
+scikit-learn
