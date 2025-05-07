@@ -11,26 +11,26 @@ from tensorflow.keras.layers import (Input, Dense, Dropout, LayerNormalization,
 from tensorflow.keras.callbacks import EarlyStopping
 import tensorflow as tf
 
-# === Load Data ===
+# Load Data
 df = pd.read_csv("sequence_model_train_data.csv")
 df["GasLoadRatio"] = df["Natural Gas Price per Million BTU"] / (df["ForecastedLoadTotal"] + 1e-6)
 
-# === Extract Hour and Day of Week ===
+# Extract Hour and Day of Week
 df["SCED Time Stamp"] = pd.to_datetime(df["SCED Time Stamp"])
 df["Hour"] = df["SCED Time Stamp"].dt.hour
 df["DayOfWeek"] = df["SCED Time Stamp"].dt.dayofweek
 
-# === Drop unused columns
+# Drop unused columns
 df.drop(columns=["Forecast_IssueTime", "Forecast_Target", "SCED Time Stamp"], inplace=True)
 
-# === Categorical Columns ===
+# Categorical Columns
 embedding_col = "Resource Name"
 onehot_cols = ["Resource Type", "QSE", "DME", "Resource Tech"]
 target_cols = [f"Submitted TPO-MW{i}" for i in range(1, 9)] + [f"Submitted TPO-Price{i}" for i in range(1, 9)]
 excluded_cols = ["Date", "SCED_DateTime"] + target_cols + [embedding_col] + onehot_cols
 numeric_cols = [c for c in df.columns if c not in excluded_cols]
 
-# === Encode "Resource Name" with LabelEncoder for embedding
+# Encode "Resource Name" with LabelEncoder for embedding
 df[embedding_col] = df[embedding_col].astype(str)
 embed_le = LabelEncoder()
 df[embedding_col] = embed_le.fit_transform(df[embedding_col])
@@ -38,21 +38,21 @@ os.makedirs("Model_Info2", exist_ok=True)
 joblib.dump(embed_le, "Model_Info2/label_encoder_Resource Name.pkl")
 n_embed_tokens = df[embedding_col].nunique()
 
-# === One-hot encode other categoricals
+# One-hot encode other categoricals
 onehot_enc = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
 df_onehot = pd.DataFrame(onehot_enc.fit_transform(df[onehot_cols]))
 joblib.dump(onehot_enc, "Model_Info2/onehot_encoder.pkl")
 
-# === Normalize numeric features
+# Normalize numeric features
 scaler = StandardScaler()
 df_numeric = pd.DataFrame(scaler.fit_transform(df[numeric_cols]), columns=numeric_cols)
 joblib.dump(scaler, "Model_Info2/feature_scaler.pkl")
 
-# === Combine all features
+# Combine all features
 X_all = pd.concat([df[[embedding_col]].reset_index(drop=True), df_onehot, df_numeric.reset_index(drop=True)], axis=1)
 df_targets = df[target_cols].copy().reset_index(drop=True)
 
-# === Build Sequences
+# Build Sequences
 sequence_length = 24
 X_seq, y_seq = [], []
 df["Date"] = df["Date"].astype(str)
@@ -69,16 +69,16 @@ for group in X_all["group"].unique():
 X_seq = np.array(X_seq)
 y_seq = np.array(y_seq)
 
-# === Scale targets
+# Scale targets
 target_scaler = StandardScaler()
 y_seq_reshaped = y_seq.reshape(-1, y_seq.shape[-1])
 y_seq_scaled = target_scaler.fit_transform(y_seq_reshaped).reshape(y_seq.shape)
 joblib.dump(target_scaler, "Model_Info2/target_scaler.pkl")
 
-# === Train/val split
+# Train/val split
 X_train, X_test, y_train, y_test = train_test_split(X_seq, y_seq_scaled, test_size=0.2, shuffle=False)
 
-# === Build Transformer Model (with split MW/Price heads)
+# Build Transformer Model (with split MW/Price heads)
 def build_model(input_shape, n_embed_tokens, embed_dim, output_dim=16):
     inp_all = Input(shape=input_shape)  # (24, features)
     inp_embed = Input(shape=(input_shape[0],), dtype='int32')  # (24,)
@@ -109,7 +109,7 @@ model = build_model(
     output_dim=y_train.shape[-1]
 )
 
-# === Train
+# Train
 model.fit(
     [X_train, X_train[:, :, 0].astype(int)], y_train,
     validation_data=([X_test, X_test[:, :, 0].astype(int)], y_test),
@@ -118,6 +118,6 @@ model.fit(
     callbacks=[EarlyStopping(patience=5, restore_best_weights=True)]
 )
 
-# === Save final model
+# Save final model
 model.save("Model_Info2/sequence_transformer_model.keras")
 print("✅ Training complete with improved embedding, FFN, and split output heads.")

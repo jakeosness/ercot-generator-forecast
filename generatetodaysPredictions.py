@@ -7,7 +7,7 @@ import joblib
 from tensorflow.keras.models import load_model
 
 def run_model_prediction():
-    # === CONFIGURATION ===
+    # CONFIGURATION
     INPUT_CSV = "prediction_input.csv"
     FEATURE_SCALER_PATH = "Model_Info2/feature_scaler.pkl"
     TARGET_SCALER_PATH = "Model_Info2/target_scaler.pkl"
@@ -16,7 +16,7 @@ def run_model_prediction():
     OUTPUT_NPY = "Model_Info2/y_pred_today.npy"
     SEQUENCE_LENGTH = 24
 
-    # === Load and preprocess data
+    # Load and preprocess data
     df = pd.read_csv(INPUT_CSV)
     df["GasLoadRatio"] = df["Natural Gas Price per Million BTU"] / (df["ForecastedLoadTotal"] + 1e-6)
 
@@ -26,14 +26,14 @@ def run_model_prediction():
 
     original_names = df["Resource Name"].copy()
 
-    # === Prepare features
+    # Prepare features
     embedding_col = "Resource Name"
     onehot_cols = ["Resource Type", "QSE", "DME", "Resource Tech"]
     target_cols = [f"Submitted TPO-MW{i}" for i in range(1, 9)] + [f"Submitted TPO-Price{i}" for i in range(1, 9)]
     excluded_cols = ["Date", "SCED_DateTime", "SCED Time Stamp"] + target_cols + [embedding_col] + onehot_cols
     numeric_cols = [col for col in df.columns if col not in excluded_cols]
 
-    # === Encode categorical features
+    # Encode categorical features
     embed_le = joblib.load(os.path.join(ENCODER_DIR, "label_encoder_Resource Name.pkl"))
     df[embedding_col] = df[embedding_col].astype(str).apply(lambda x: x if x in embed_le.classes_ else "Unknown")
     if "Unknown" not in embed_le.classes_:
@@ -53,7 +53,7 @@ def run_model_prediction():
         df_numeric.reset_index(drop=True)
     ], axis=1)
 
-    # === Sequence creation
+    # Sequence creation
     df["Date"] = df["Date"].astype(str)
     X_all["group"] = df[embedding_col].astype(str) + "_" + df["Date"]
     original_names_seq = original_names.values
@@ -69,7 +69,7 @@ def run_model_prediction():
     X_embed = X_seq[:, :, 0].astype(int)
     X_values = X_seq.copy()
 
-    # === Load model and predict
+    # Load model and predict
     model = load_model(MODEL_PATH)
     y_pred_scaled = model.predict([X_values, X_embed])
     target_scaler = joblib.load(TARGET_SCALER_PATH)
@@ -77,7 +77,7 @@ def run_model_prediction():
 
     np.save(OUTPUT_NPY, y_pred)
 
-    # === Save individual generator forecasts
+    # Save individual generator forecasts
     os.makedirs("Model_Info2/prediction_csvs", exist_ok=True)
     combined = {}
     for i, gen_name in enumerate(resource_names):
